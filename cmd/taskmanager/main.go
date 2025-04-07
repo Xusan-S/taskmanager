@@ -1,5 +1,6 @@
 package main
 
+// comment for PR
 import (
 	"context"
 	"flag"
@@ -10,31 +11,32 @@ import (
 	"sort"
 	"sync"
 	"syscall"
+	"time"
+
 	"taskm/pkg/archiver"
 	"taskm/pkg/logger"
 	"taskm/pkg/storage"
 	"taskm/pkg/task"
 	"taskm/pkg/utils"
-	"time"
 )
 
 const (
-	storageDir = "storage"
-	tasksFileName = "tasks.txt"
+	storageDir       = "storage"
+	tasksFileName    = "tasks.txt"
 	archiverFileName = "archive.txt"
-	logFileName = "log.txt"
-	logBuffer = 100
+	logFileName      = "log.txt"
+	logBuffer        = 100
 	archiverInterval = 30 * time.Second
-	defaultPriority = task.PriorityMedium
+	defaultPriority  = task.PriorityMedium
 )
 
 var (
-	tasks []task.Task
-	taskMutex sync.Mutex
-	idGen *utils.IDGenerator
-	appLogger *logger.Logger
+	tasks       []task.Task
+	taskMutex   sync.Mutex
+	idGen       *utils.IDGenerator
+	appLogger   *logger.Logger
 	appArchiver *archiver.Archiver
-	wg sync.WaitGroup
+	wg          sync.WaitGroup
 )
 
 type byPriorityAndDate []task.Task
@@ -64,16 +66,16 @@ func (s byPriorityAndDate) Less(i, j int) bool {
 
 func main() {
 	// Запускаем Контекст для Graceful Shutdown
-	ctx, cancel :=context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Инициализация логгера
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
-	go func(){
+	go func() {
 		sig := <-sigChan
-		fmt.Printf("\nСигнал получен: %v. Завершение работы...\n", sig)	
+		fmt.Printf("\nСигнал получен: %v. Завершение работы...\n", sig)
 		cancel()
 	}()
 
@@ -118,7 +120,7 @@ func main() {
 	addFlag := flag.String("add", "", "Добавить задачу")
 	listFlag := flag.Bool("list", false, "Показать список задач")
 	doneFlag := flag.Int("done", 0, "Отметить задачу как выполненную")
-	deleteFlag := flag.Int ("delete", 0, "Удалить задачу")
+	deleteFlag := flag.Int("delete", 0, "Удалить задачу")
 
 	priorityFlag := flag.String("priority", defaultPriority, "Приоритет задачи (low, medium, high)")
 	flag.Parse()
@@ -131,7 +133,7 @@ func main() {
 	if *listFlag {
 		if actionTaken {
 			fmt.Fprintln(os.Stderr, "Ошибка: нельзя использовать одновременно флаги -list с другими")
-			appLogger.Log ("Ошибка: Использование нескольких флагов")
+			appLogger.Log("Ошибка: Использование нескольких флагов")
 			os.Exit(1)
 		}
 		actionTaken = true
@@ -140,7 +142,7 @@ func main() {
 	if *doneFlag != 0 {
 		if actionTaken {
 			fmt.Fprintln(os.Stderr, "Ошибка: нельзя использовать одновременно флаги -done с другими")
-			appLogger.Log ("Ошибка: Использование нескольких флагов")
+			appLogger.Log("Ошибка: Использование нескольких флагов")
 			os.Exit(1)
 		}
 		actionTaken = true
@@ -149,17 +151,17 @@ func main() {
 	if *deleteFlag != 0 {
 		if actionTaken {
 			fmt.Fprintln(os.Stderr, "Ошибка: нельзя использовать одновременно флаги -delete с другими")
-			appLogger.Log ("Ошибка: Использование нескольких флагов")
+			appLogger.Log("Ошибка: Использование нескольких флагов")
 			os.Exit(1)
 		}
 		actionTaken = true
 		handleDeleteTask(*deleteFlag)
 	}
 
-	if !actionTaken && len(os.Args) >1 {
+	if !actionTaken && len(os.Args) > 1 {
 		fmt.Fprintln(os.Stderr, "Ошибка: Не указаны флаги")
 		fmt.Fprintln(os.Stderr, "Использовать: -add, -list, -done, -delete")
-		appLogger.Log ("Ошибка: Не указаны флаги")
+		appLogger.Log("Ошибка: Не указаны флаги")
 		os.Exit(1)
 	}
 
@@ -170,27 +172,26 @@ func main() {
 		}
 	}
 
-	<- ctx.Done()
+	<-ctx.Done()
 
 	fmt.Println("\nЗавершение работы приложения...")
 
 	fmt.Println("Ожидание завершения фоновых процессов...")
 	waitTimeout := 10 * time.Second // Таймаут ожидания
 	waitChan := make(chan struct{})
-	go func(){
+	go func() {
 		wg.Wait() // Ждем wg.Done() от логгера и архиватора
 		close(waitChan)
 	}()
 
 	select {
-		case <-waitChan:
-			fmt.Println("Фоновые процессы успешно завершены.")
-		case <-time.After(waitTimeout):
-			// Логгер уже может быть закрыт или недоступен, используем stderr
-			fmt.Fprintf(os.Stderr, "Ошибка: время ожидания фоновых процессов истекло (%v)\n", waitTimeout)
-			// НЕ НУЖНО: appLogger.Log("Время ожидания фоновых процессов истекло") // <-- УДАЛИТЬ
-	}	
-	
+	case <-waitChan:
+		fmt.Println("Фоновые процессы успешно завершены.")
+	case <-time.After(waitTimeout):
+		// Логгер уже может быть закрыт или недоступен, используем stderr
+		fmt.Fprintf(os.Stderr, "Ошибка: время ожидания фоновых процессов истекло (%v)\n", waitTimeout)
+		// НЕ НУЖНО: appLogger.Log("Время ожидания фоновых процессов истекло") // <-- УДАЛИТЬ
+	}
 
 	// блокируем таск чтобы записать
 	taskMutex.Lock()
@@ -202,7 +203,7 @@ func main() {
 		appLogger.Log(logMsg)
 		fmt.Fprintf(os.Stderr, "%s\n", logMsg)
 	} else {
-		appLogger.Log ("Задачи сохранены в файл")
+		appLogger.Log("Задачи сохранены в файл")
 		fmt.Println("Задачи сохранены в файл")
 	}
 
@@ -211,10 +212,10 @@ func main() {
 	}
 
 	select {
-		case <-waitChan:
-			fmt.Println("Фоновые процессы завершены")
-		case <-time.After(waitTimeout):
-			fmt.Fprintf(os.Stderr, "Время ожидания фоновых процессов истекло")
+	case <-waitChan:
+		fmt.Println("Фоновые процессы завершены")
+	case <-time.After(waitTimeout):
+		fmt.Fprintf(os.Stderr, "Время ожидания фоновых процессов истекло")
 	}
 
 	appLogger.Close()
@@ -256,9 +257,7 @@ func handleListTasks() {
 		return
 	}
 
-	
 	sort.Sort(byPriorityAndDate(tasksCopy))
-
 
 	fmt.Println("-------------------- TASKS --------------------")
 	currentPriority := ""
@@ -281,7 +280,7 @@ func handleListTasks() {
 }
 
 func handleDoneTask(id int) {
-	taskMutex.Lock() // Блокируем перед доступом к tasks
+	taskMutex.Lock()         // Блокируем перед доступом к tasks
 	defer taskMutex.Unlock() // Гарантируем разблокировку при выходе
 
 	found := false
@@ -308,7 +307,7 @@ func handleDoneTask(id int) {
 }
 
 func handleDeleteTask(id int) {
-	taskMutex.Lock() // Блокируем перед доступом к tasks
+	taskMutex.Lock()         // Блокируем перед доступом к tasks
 	defer taskMutex.Unlock() // Гарантируем разблокировку при выходе
 
 	foundIndex := -1
@@ -326,7 +325,7 @@ func handleDeleteTask(id int) {
 		// Эффективное удаление из среза
 		tasks[foundIndex] = tasks[len(tasks)-1] // Копируем последний элемент на место удаляемого
 		// tasks[len(tasks)-1] = nil // Опционально: обнуляем последний элемент для сборщика мусора (для срезов указателей) - здесь не строго нужно
-		tasks = tasks[:len(tasks)-1]            // Уменьшаем длину среза на 1
+		tasks = tasks[:len(tasks)-1] // Уменьшаем длину среза на 1
 
 		logMsg := fmt.Sprintf("Deleted task ID %d: \"%s\"", id, deletedTaskTitle)
 		appLogger.Log(logMsg)
